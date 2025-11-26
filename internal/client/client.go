@@ -235,15 +235,6 @@ func Capture(args []string) {
 			fmt.Fprintf(os.Stderr, "Error decoding PNG data: %v\n", err)
 			os.Exit(1)
 		}
-		
-		if outputFile == "" {
-			// Check if stdout is a terminal
-			fi, _ := os.Stdout.Stat()
-			if (fi.Mode() & os.ModeCharDevice) != 0 {
-				// Output is a TTY, use default filename
-				outputFile = id + ".png"
-			}
-		}
 
 		if outputFile != "" {
 			if err := os.WriteFile(outputFile, data, 0644); err != nil {
@@ -252,8 +243,15 @@ func Capture(args []string) {
 			}
 			fmt.Printf("Screenshot saved to %s\n", outputFile)
 		} else {
-			// Piped to another command, write raw binary
-			os.Stdout.Write(data)
+			// Check if stdout is a terminal
+			fi, _ := os.Stdout.Stat()
+			if (fi.Mode() & os.ModeCharDevice) != 0 {
+				// Output is a TTY, display using Kitty graphics protocol
+				displayImageKitty(resp.Data)
+			} else {
+				// Piped to another command, write raw binary
+				os.Stdout.Write(data)
+			}
 		}
 	} else {
 		if resp.Data != "" {
@@ -323,6 +321,38 @@ func History(args []string) {
 	for i, entry := range history {
 		fmt.Printf("%d: %q\n", i, entry)
 	}
+}
+
+// displayImageKitty displays an image using the Kitty graphics protocol.
+// The data should be base64-encoded PNG data.
+func displayImageKitty(b64Data string) {
+	// Kitty graphics protocol: ESC_G<control data>;<payload>ESC\
+	// For inline display: a=T (transmit and display), f=100 (PNG format)
+	// We need to chunk the data if it's large (max 4096 bytes per chunk)
+	const chunkSize = 4096
+
+	for i := 0; i < len(b64Data); i += chunkSize {
+		end := i + chunkSize
+		if end > len(b64Data) {
+			end = len(b64Data)
+		}
+		chunk := b64Data[i:end]
+
+		// m=1 means more chunks follow, m=0 means last chunk
+		more := 1
+		if end >= len(b64Data) {
+			more = 0
+		}
+
+		if i == 0 {
+			// First chunk includes the control data
+			fmt.Printf("\x1b_Ga=T,f=100,m=%d;%s\x1b\\", more, chunk)
+		} else {
+			// Subsequent chunks only have m parameter
+			fmt.Printf("\x1b_Gm=%d;%s\x1b\\", more, chunk)
+		}
+	}
+	fmt.Println() // Add newline after image
 }
 
 func Wait(args []string) {
