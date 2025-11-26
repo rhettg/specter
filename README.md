@@ -2,19 +2,21 @@
 
 Specter is a test harness for running and interacting with terminal applications (TUIs). It is designed to allow AI agents or automated scripts to test terminal interfaces by spawning processes, simulating input, and inspecting the terminal state.
 
+> **Quick Start**: Run `specter quickstart` for a concise guide optimized for LLM coding agents.
+
 ## Architecture
 
 Specter operates as a client-server architecture:
 
-1.  **Server**: A background process that manages PTYs (Pseudo-Terminals) and tracks the state of running terminal applications. It uses a virtual terminal emulator (likely binding to `libvterm`) to maintain an in-memory representation of the screen.
+1.  **Server**: A background process that manages PTYs (Pseudo-Terminals) and tracks the state of running terminal applications. It uses a virtual terminal emulator (binding to `libvterm`) to maintain an in-memory representation of the screen.
 2.  **Client**: A CLI tool that connects to the server to perform actions.
-3.  **Communication**: The client and server communicate via a Unix domain socket (pipe) located in the current working directory.
+3.  **Communication**: The client and server communicate via a Unix domain socket (`.specter.sock`) located in the current working directory.
 
 ## Tech Stack
 
 *   **Language**: Go
 *   **PTY Management**: [creack/pty](https://github.com/creack/pty)
-*   **Terminal Emulation**: Bindings to `libvterm` (or similar) for screen state tracking.
+*   **Terminal Emulation**: Bindings to `libvterm` for screen state tracking.
 
 ## Usage
 
@@ -23,51 +25,87 @@ Specter operates as a client-server architecture:
 Start the specter server in the directory where you want to manage sessions.
 
 ```bash
-specter server
+specter server &
 ```
 
 This creates a hidden socket (`.specter.sock`) in the current directory.
 
-### 2. Run a Command
+### 2. Spawn a Terminal Session
 
 Start a new terminal session.
 
 ```bash
-specter spawn --id "mysession" -- bash
+specter spawn -- bash
+# Or with a specific ID: specter spawn --id myapp -- vim file.txt
 ```
 
-### 3. Interact
+All commands default to `--id "default"` for simple single-session usage.
+
+### 3. Send Input
 
 Send key presses or text to the session.
 
 ```bash
-specter type --id "mysession" "ls -la\n"
+specter type "ls -la\n"          # Type command and press Enter
+specter type "Hello World"       # Type text without Enter
+specter type "\t"                # Press Tab (for autocomplete)
+specter type "\x03"              # Send Ctrl+C (interrupt)
 ```
 
-### 4. Inspect
+#### Common Escape Sequences
+
+| Sequence | Description |
+|----------|-------------|
+| `\n` | Enter/newline |
+| `\t` | Tab |
+| `\r` | Carriage return |
+| `\\` | Literal backslash |
+| `\x03` | Ctrl+C (interrupt) |
+| `\x04` | Ctrl+D (EOF) |
+| `\x1b` | Escape key |
+
+### 4. Capture Screen
 
 Capture the current state of the terminal screen.
 
 ```bash
-specter capture --id "mysession"
+specter capture                  # Get text content
+specter capture --format png     # Get screenshot image
 ```
 
-This will output the text content of the terminal as it appears to a user.
+Use `--out <file>` to specify a filename for PNG output.
 
-You can also capture a screenshot in PNG format:
+### 5. Wait for Exit
+
+Wait for a process to exit.
 
 ```bash
-specter capture --id "mysession" --format png
+specter wait                     # Blocks until process exits
 ```
 
-This saves to `mysession.png` by default. Use `--out <file>` to specify a different filename, or pipe the output to another command (binary data is written to stdout when not a TTY).
-
-### 5. History
+### 6. View History
 
 View the input history sent to a session.
 
 ```bash
-specter history --id "mysession"
+specter history
+```
+
+## Tips for Testing TUIs
+
+- After sending input, wait briefly then capture to see the result
+- Use capture frequently to verify the application state
+- For interactive programs (vim, htop), use escape sequences for navigation
+- The `--id` flag lets you manage multiple sessions simultaneously
+
+## Example: Testing a CLI Tool
+
+```bash
+specter spawn -- ./my-cli-tool
+specter type "help\n"
+specter capture                   # Verify help output appeared
+specter type "quit\n"
+specter wait                      # Wait for clean exit
 ```
 
 ## Development
@@ -75,7 +113,7 @@ specter history --id "mysession"
 ### Prerequisites
 
 *   Go 1.23+
-*   `libvterm` (if using C bindings)
+*   `libvterm`
 
 ### Build
 
