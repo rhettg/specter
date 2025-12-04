@@ -4,7 +4,7 @@ Specter is a test harness for running and interacting with terminal applications
 
 > **Quick Start**: Run `specter quickstart` for a concise guide optimized for LLM coding agents.
 
-<video src="https://raw.githubusercontent.com/rhettg/specter/master/media/video.mp4" controls width="100%"></video>
+![Demo](https://raw.githubusercontent.com/rhettg/specter/master/media/demo.gif)
 
 ## Architecture
 
