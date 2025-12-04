@@ -4,19 +4,21 @@ Specter is a test harness for running and interacting with terminal applications
 
 > **Quick Start**: Run `specter quickstart` for a concise guide optimized for LLM coding agents.
 
+[![Watch the video](https://raw.githubusercontent.com/rhettg/specter/master/media/thumbnail.png)](https://raw.githubusercontent.com/rhettg/specter/master/media/video.mp4)
+
 ## Architecture
 
 Specter operates as a self-contained process:
 
-1.  **Spawn**: The `spawn` command starts a background process that manages a PTY (Pseudo-Terminal) and tracks the state of the running terminal application using a virtual terminal emulator (binding to `libvterm`).
-2.  **Commands**: CLI commands connect to the running process to perform actions.
-3.  **Communication**: Commands communicate via a Unix domain socket (`.specter.sock`) located in the current working directory.
+1. **Spawn**: The `spawn` command starts a background process that manages a PTY (Pseudo-Terminal) and tracks the state of the running terminal application using a virtual terminal emulator (binding to `libvterm`).
+2. **Commands**: CLI commands connect to the running process to perform actions.
+3. **Communication**: Commands communicate via a Unix domain socket (`.specter.sock`) located in the current working directory.
 
 ## Tech Stack
 
-*   **Language**: Go
-*   **PTY Management**: [creack/pty](https://github.com/creack/pty)
-*   **Terminal Emulation**: Bindings to `libvterm` for screen state tracking.
+* **Language**: Go
+* **PTY Management**: [creack/pty](https://github.com/creack/pty)
+* **Terminal Emulation**: Bindings to `libvterm` for screen state tracking.
 
 ## Usage
 
@@ -91,9 +93,9 @@ specter kill
 
 ## Tips for Testing TUIs
 
-- After sending input, wait briefly then capture to see the result
-- Use capture frequently to verify the application state
-- For interactive programs (vim, htop), use escape sequences for navigation
+* After sending input, wait briefly then capture to see the result
+* Use capture frequently to verify the application state
+* For interactive programs (vim, htop), use escape sequences for navigation
 
 ## Example: Running Commands in a Shell
 
@@ -110,8 +112,8 @@ specter kill                      # Done
 
 ### Prerequisites
 
-*   Go 1.23+
-*   `libvterm`
+* Go 1.23+
+* `libvterm`
 
 ### Build
 
