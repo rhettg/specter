@@ -6,30 +6,37 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"specter/internal/protocol"
 	"specter/internal/server"
+	"time"
 )
 
-const DefaultID = "default"
-
-func sendRequest(req protocol.Request) {
+func sendRequest(req protocol.Request) (protocol.Response, error) {
 	conn, err := net.Dial("unix", server.SocketName)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error connecting to server: %v\nIs the server running?\n", err)
-		os.Exit(1)
+		return protocol.Response{}, err
 	}
 	defer conn.Close()
 
 	encoder := json.NewEncoder(conn)
 	if err := encoder.Encode(req); err != nil {
-		fmt.Fprintf(os.Stderr, "Error sending request: %v\n", err)
-		os.Exit(1)
+		return protocol.Response{}, err
 	}
 
 	decoder := json.NewDecoder(conn)
 	var resp protocol.Response
 	if err := decoder.Decode(&resp); err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading response: %v\n", err)
+		return protocol.Response{}, err
+	}
+
+	return resp, nil
+}
+
+func sendRequestOrExit(req protocol.Request) {
+	resp, err := sendRequest(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error connecting to server: %v\nIs specter spawned?\n", err)
 		os.Exit(1)
 	}
 
@@ -46,72 +53,71 @@ func sendRequest(req protocol.Request) {
 }
 
 func Spawn(args []string) {
-	// Expected args: --id <id> -- <cmd> ...
-	// For simplicity in this prototype, let's assume order: --id <id> <cmd> ...
-	
-	id := ""
 	var cmd []string
-
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--id" && i+1 < len(args) {
-			id = args[i+1]
-			i++ // skip value
-		} else if args[i] == "--" {
+		if args[i] == "--" {
 			cmd = args[i+1:]
 			break
-		} else {
-			// If no -- separator, assume everything after ID is command?
-			// Or just strict parsing. Let's handle the case where there is no --
-			// If we already have ID, the rest is command
-			if id != "" && len(cmd) == 0 {
-				cmd = args[i:]
-				break
-			}
 		}
 	}
 
-	if id == "" {
-		id = DefaultID
+	if len(cmd) == 0 {
+		shell := os.Getenv("SHELL")
+		if shell == "" {
+			shell = "/bin/sh"
+		}
+		cmd = []string{shell}
 	}
 
-	req := protocol.Request{
-		Op:      protocol.OpSpawn,
-		ID:      id,
-		Payload: cmd,
+	if _, err := os.Stat(server.SocketName); err == nil {
+		fmt.Fprintf(os.Stderr, "Specter already running (socket exists: %s)\n", server.SocketName)
+		os.Exit(1)
 	}
-	sendRequest(req)
+
+	exe, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error finding executable: %v\n", err)
+		os.Exit(1)
+	}
+
+	serverArgs := append([]string{"_server", "--"}, cmd...)
+	serverCmd := exec.Command(exe, serverArgs...)
+	serverCmd.Stdout = os.Stdout
+	serverCmd.Stderr = os.Stderr
+
+	if err := serverCmd.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error starting server: %v\n", err)
+		os.Exit(1)
+	}
+
+	for i := 0; i < 50; i++ {
+		if _, err := os.Stat(server.SocketName); err == nil {
+			fmt.Printf("Spawned: %v\n", cmd)
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	fmt.Fprintf(os.Stderr, "Timeout waiting for server to start\n")
+	os.Exit(1)
 }
 
 func Type(args []string) {
-	id := ""
-	text := ""
-
-	for i := 0; i < len(args); i++ {
-		if args[i] == "--id" && i+1 < len(args) {
-			id = args[i+1]
-			i++
-		} else {
-			text = args[i]
-		}
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: specter type <text>\n")
+		os.Exit(1)
 	}
 
-	if id == "" {
-		id = DefaultID
-	}
-	
-	// Unescape newlines and tabs for convenience
-	text = unescape(text)
+	text := unescape(args[0])
 
 	req := protocol.Request{
 		Op:      protocol.OpType,
-		ID:      id,
 		Payload: []string{text},
 	}
-	sendRequest(req)
+	sendRequestOrExit(req)
 }
 
 func unescape(s string) string {
-	// Unescape common control chars and hex sequences
 	var out []byte
 	for i := 0; i < len(s); i++ {
 		if s[i] == '\\' && i+1 < len(s) {
@@ -129,7 +135,6 @@ func unescape(s string) string {
 				out = append(out, '\\')
 				i++
 			case 'x':
-				// Handle \xNN hex escape sequences
 				if i+3 < len(s) {
 					hex := s[i+2 : i+4]
 					if val, err := parseHexByte(hex); err == nil {
@@ -138,7 +143,6 @@ func unescape(s string) string {
 						continue
 					}
 				}
-				// Invalid hex sequence, output literally
 				out = append(out, '\\')
 			default:
 				out = append(out, '\\')
@@ -146,7 +150,6 @@ func unescape(s string) string {
 				i++
 			}
 		} else if s[i] == '\\' {
-			// Trailing backslash
 			out = append(out, '\\')
 		} else {
 			out = append(out, s[i])
@@ -177,15 +180,11 @@ func parseHexByte(hex string) (byte, error) {
 }
 
 func Capture(args []string) {
-	id := ""
 	format := "text"
 	outputFile := ""
 
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--id" && i+1 < len(args) {
-			id = args[i+1]
-			i++
-		} else if args[i] == "--format" && i+1 < len(args) {
+		if args[i] == "--format" && i+1 < len(args) {
 			format = args[i+1]
 			i++
 		} else if args[i] == "--out" && i+1 < len(args) {
@@ -194,33 +193,14 @@ func Capture(args []string) {
 		}
 	}
 
-	if id == "" {
-		id = DefaultID
-	}
-
 	req := protocol.Request{
 		Op:      protocol.OpCapture,
-		ID:      id,
 		Options: map[string]string{"format": format},
 	}
-	
-	conn, err := net.Dial("unix", server.SocketName)
+
+	resp, err := sendRequest(req)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)
-		os.Exit(1)
-	}
-	defer conn.Close()
-
-	encoder := json.NewEncoder(conn)
-	if err := encoder.Encode(req); err != nil {
-		fmt.Fprintf(os.Stderr, "Error sending request: %v\n", err)
-		os.Exit(1)
-	}
-
-	decoder := json.NewDecoder(conn)
-	var resp protocol.Response
-	if err := decoder.Decode(&resp); err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading response: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -243,13 +223,10 @@ func Capture(args []string) {
 			}
 			fmt.Printf("Screenshot saved to %s\n", outputFile)
 		} else {
-			// Check if stdout is a terminal
 			fi, _ := os.Stdout.Stat()
 			if (fi.Mode() & os.ModeCharDevice) != 0 {
-				// Output is a TTY, display using Kitty graphics protocol
 				displayImageKitty(resp.Data)
 			} else {
-				// Piped to another command, write raw binary
 				os.Stdout.Write(data)
 			}
 		}
@@ -264,41 +241,14 @@ func Capture(args []string) {
 	}
 }
 
-func History(args []string) {
-	id := ""
-	for i := 0; i < len(args); i++ {
-		if args[i] == "--id" && i+1 < len(args) {
-			id = args[i+1]
-			i++
-		}
-	}
-
-	if id == "" {
-		id = DefaultID
-	}
-
+func History() {
 	req := protocol.Request{
 		Op: protocol.OpHistory,
-		ID: id,
 	}
-	
-	conn, err := net.Dial("unix", server.SocketName)
+
+	resp, err := sendRequest(req)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)
-		os.Exit(1)
-	}
-	defer conn.Close()
-
-	encoder := json.NewEncoder(conn)
-	if err := encoder.Encode(req); err != nil {
-		fmt.Fprintf(os.Stderr, "Error sending request: %v\n", err)
-		os.Exit(1)
-	}
-
-	decoder := json.NewDecoder(conn)
-	var resp protocol.Response
-	if err := decoder.Decode(&resp); err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading response: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -307,13 +257,8 @@ func History(args []string) {
 		os.Exit(1)
 	}
 
-	// Output is JSON array string. Let's pretty print it or just print it.
-	// For CLI usability, maybe just print each item on a new line?
-	// Or raw JSON.
-	// Let's try to decode and print lines.
 	var history []string
 	if err := json.Unmarshal([]byte(resp.Data), &history); err != nil {
-		// Fallback to raw
 		fmt.Println(resp.Data)
 		return
 	}
@@ -323,12 +268,7 @@ func History(args []string) {
 	}
 }
 
-// displayImageKitty displays an image using the Kitty graphics protocol.
-// The data should be base64-encoded PNG data.
 func displayImageKitty(b64Data string) {
-	// Kitty graphics protocol: ESC_G<control data>;<payload>ESC\
-	// For inline display: a=T (transmit and display), f=100 (PNG format)
-	// We need to chunk the data if it's large (max 4096 bytes per chunk)
 	const chunkSize = 4096
 
 	for i := 0; i < len(b64Data); i += chunkSize {
@@ -338,39 +278,42 @@ func displayImageKitty(b64Data string) {
 		}
 		chunk := b64Data[i:end]
 
-		// m=1 means more chunks follow, m=0 means last chunk
 		more := 1
 		if end >= len(b64Data) {
 			more = 0
 		}
 
 		if i == 0 {
-			// First chunk includes the control data
 			fmt.Printf("\x1b_Ga=T,f=100,m=%d;%s\x1b\\", more, chunk)
 		} else {
-			// Subsequent chunks only have m parameter
 			fmt.Printf("\x1b_Gm=%d;%s\x1b\\", more, chunk)
 		}
 	}
-	fmt.Println() // Add newline after image
+	fmt.Println()
 }
 
-func Wait(args []string) {
-	id := ""
-	for i := 0; i < len(args); i++ {
-		if args[i] == "--id" && i+1 < len(args) {
-			id = args[i+1]
-			i++
-		}
-	}
-
-	if id == "" {
-		id = DefaultID
-	}
-
+func Wait() {
 	req := protocol.Request{
 		Op: protocol.OpWait,
-		ID: id,
 	}
-	sendRequest(req)
+	sendRequestOrExit(req)
+}
+
+func Kill() {
+	req := protocol.Request{
+		Op: protocol.OpKill,
+	}
+
+	resp, err := sendRequest(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error connecting to server: %v\nIs specter running?\n", err)
+		os.Exit(1)
+	}
+
+	if resp.Status != "ok" {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", resp.Message)
+		os.Exit(1)
+	}
+
+	fmt.Println("Specter terminated")
 }

@@ -14,26 +14,30 @@ func main() {
 	}
 
 	switch os.Args[1] {
-	case "server":
-		if err := server.Start(); err != nil {
+	case "_server":
+		var cmd []string
+		for i := 2; i < len(os.Args); i++ {
+			if os.Args[i] == "--" {
+				cmd = os.Args[i+1:]
+				break
+			}
+		}
+		if err := server.Start(cmd); err != nil {
 			fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
 			os.Exit(1)
 		}
 	case "spawn":
-		// specter spawn --id <id> -- <cmd>
 		client.Spawn(os.Args[2:])
 	case "type":
-		// specter type --id <id> "text"
 		client.Type(os.Args[2:])
 	case "capture":
-		// specter capture --id <id>
 		client.Capture(os.Args[2:])
 	case "history":
-		// specter history --id <id>
-		client.History(os.Args[2:])
+		client.History()
 	case "wait":
-		// specter wait --id <id>
-		client.Wait(os.Args[2:])
+		client.Wait()
+	case "kill":
+		client.Kill()
 	case "quickstart":
 		printQuickstart()
 	default:
@@ -45,43 +49,40 @@ func main() {
 func printUsage() {
 	fmt.Println("Usage: specter <command> [args]")
 	fmt.Println("Commands:")
-	fmt.Println("  server      Start the specter server")
-	fmt.Println("  spawn       Start a new process (usage: specter spawn [--id <id>] -- <cmd>)")
-	fmt.Println("  type        Send input to a session (usage: specter type [--id <id>] <text>)")
-	fmt.Println("  capture     Capture screen content (usage: specter capture [--id <id>])")
-	fmt.Println("  history     Show input history (usage: specter history [--id <id>])")
-	fmt.Println("  wait        Wait for process to exit and return exit code (usage: specter wait [--id <id>])")
+	fmt.Println("  spawn       Start a new session (usage: specter spawn [-- <cmd>])")
+	fmt.Println("  type        Send input to session (usage: specter type <text>)")
+	fmt.Println("  capture     Capture screen content (usage: specter capture [--format png] [--out file])")
+	fmt.Println("  history     Show input history")
+	fmt.Println("  wait        Wait for process to exit and return exit code")
+	fmt.Println("  kill        Terminate the specter session")
 	fmt.Println("  quickstart  Show quickstart guide for LLM coding agents")
 }
 
 func printQuickstart() {
-	fmt.Print(`Specter Quickstart Guide for LLM Coding Agents
-===============================================
+	fmt.Print(`Specter Quickstart Guide
+========================
 
 Specter is a terminal test harness that lets you spawn, interact with, and
 inspect terminal applications (TUIs) programmatically.
 
 ## Basic Workflow
 
-1. Start the server (run once, keeps running in background):
-   specter server &
+1. Spawn a shell session:
+   specter spawn                    # Starts $SHELL (or /bin/sh)
+   specter spawn -- vim file.txt    # Or run a specific command
 
-2. Spawn a terminal session:
-   specter spawn -- bash
-   # Or with a specific ID: specter spawn --id myapp -- vim file.txt
-
-3. Send input (text and keypresses):
+2. Send input (text and keypresses):
    specter type "ls -la\n"          # Type command and press Enter
    specter type "Hello World"       # Type text without Enter
    specter type "\t"                # Press Tab (for autocomplete)
    specter type "\x03"              # Send Ctrl+C (ASCII 3)
 
-4. Capture the screen to see what's displayed:
+3. Capture the screen to see what's displayed:
    specter capture                  # Get text content
    specter capture --format png     # Get screenshot image
 
-5. Wait for a process to exit:
-   specter wait                     # Blocks until process exits
+4. When done, terminate the session:
+   specter kill
 
 ## Common Escape Sequences for type
 
@@ -98,15 +99,14 @@ inspect terminal applications (TUIs) programmatically.
 - After sending input, wait briefly then capture to see the result
 - Use capture frequently to verify the application state
 - For interactive programs (vim, htop), use escape sequences for navigation
-- The --id flag lets you manage multiple sessions simultaneously
-- All commands default to --id "default" for simple single-session usage
 
-## Example: Testing a CLI Tool
+## Example: Running commands in a shell
 
-  specter spawn -- ./my-cli-tool
-  specter type "help\n"
-  specter capture                   # Verify help output appeared
-  specter type "quit\n"
-  specter wait                      # Wait for clean exit
+  specter spawn
+  specter type "echo hello\n"
+  specter capture                   # Verify output
+  specter type "./my-cli-tool\n"    # Run a program
+  specter capture
+  specter kill                      # Done
 `)
 }

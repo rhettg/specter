@@ -3,17 +3,16 @@ package protocol
 type Op string
 
 const (
-	OpSpawn   Op = "spawn"
 	OpType    Op = "type"
 	OpCapture Op = "capture"
 	OpHistory Op = "history"
 	OpWait    Op = "wait"
+	OpKill    Op = "kill"
 )
 
 type Request struct {
 	Op      Op                `json:"op"`
-	ID      string            `json:"id"`
-	Payload []string          `json:"payload,omitempty"` // For spawn args or text content
+	Payload []string          `json:"payload,omitempty"`
 	Options map[string]string `json:"options,omitempty"`
 }
 
